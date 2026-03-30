@@ -1,5 +1,9 @@
 # @shipitandpray/pretext-comic
 
+[![Live Demo](https://img.shields.io/badge/demo-live-brightgreen)](https://shipitandpray.github.io/pretext-comic/) [![GitHub](https://img.shields.io/github/stars/ShipItAndPray/pretext-comic?style=social)](https://github.com/ShipItAndPray/pretext-comic)
+
+> **[View Live Demo](https://shipitandpray.github.io/pretext-comic/)**
+
 Fit text inside comic speech bubbles. Ellipse, cloud, thought, shout, custom shapes. Canvas + React. Export PNG.
 
 ## Install
