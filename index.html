@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>pretext-comic - Comic Speech Bubble Creator</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Comic Sans MS', 'Comic Neue', cursive, sans-serif;
+      background: #f0f0f0;
+      color: #222;
+    }
+    header {
+      background: #222;
+      color: #fff;
+      padding: 20px 32px;
+      text-align: center;
+    }
+    header h1 { font-size: 28px; margin-bottom: 4px; }
+    header p { font-size: 14px; color: #bbb; }
+    .app {
+      max-width: 1100px;
+      margin: 24px auto;
+      padding: 0 16px;
+    }
+    .toolbar {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      align-items: center;
+      margin-bottom: 16px;
+      padding: 12px 16px;
+      background: #fff;
+      border-radius: 8px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+    }
+    .toolbar label { font-size: 13px; font-weight: 600; }
+    .toolbar select, .toolbar input, .toolbar button {
+      font-size: 13px;
+      padding: 6px 10px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
+    .toolbar button {
+      background: #0066ff;
+      color: #fff;
+      border: none;
+      cursor: pointer;
+      font-weight: 600;
+      padding: 8px 16px;
+      border-radius: 6px;
+    }
+    .toolbar button:hover { background: #0052cc; }
+    .toolbar button.danger { background: #e53e3e; }
+    .toolbar button.danger:hover { background: #c53030; }
+    .toolbar button.export { background: #38a169; }
+    .toolbar button.export:hover { background: #2f855a; }
+    .canvas-area {
+      position: relative;
+      background: #fff;
+      border: 3px solid #333;
+      border-radius: 4px;
+      min-height: 500px;
+      overflow: hidden;
+      cursor: crosshair;
+    }
+    .bubble-wrapper {
+      position: absolute;
+      cursor: grab;
+      user-select: none;
+    }
+    .bubble-wrapper.selected { outline: 2px dashed #0066ff; outline-offset: 4px; }
+    .bubble-wrapper.dragging { cursor: grabbing; opacity: 0.85; }
+    .bubble-controls {
+      position: absolute;
+      top: -32px;
+      left: 0;
+      display: flex;
+      gap: 4px;
+    }
+    .bubble-controls select, .bubble-controls button {
+      font-size: 11px;
+      padding: 2px 6px;
+    }
+    .text-overlay {
+      position: absolute;
+      top: 0; left: 0;
+      background: rgba(255,255,255,0.92);
+      border: 2px solid #0066ff;
+      border-radius: 8px;
+      padding: 8px;
+      font-size: 13px;
+      font-family: 'Comic Sans MS', cursive;
+      resize: none;
+      outline: none;
+      text-align: center;
+    }
+
+    /* Shape Gallery */
+    .gallery {
+      margin-top: 32px;
+      padding: 24px;
+      background: #fff;
+      border-radius: 8px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+    }
+    .gallery h2 { margin-bottom: 16px; font-size: 20px; }
+    .gallery-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 16px;
+    }
+    .gallery-item {
+      text-align: center;
+      padding: 12px;
+      border: 1px solid #eee;
+      border-radius: 8px;
+    }
+    .gallery-item canvas { display: block; margin: 0 auto 8px; }
+    .gallery-item .shape-name { font-weight: 600; font-size: 14px; text-transform: capitalize; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>@shipitandpray/pretext-comic</h1>
+    <p>Drag-and-drop comic panel creator with shape-aware text fitting</p>
+  </header>
+
+  <div class="app">
+    <div class="toolbar" id="toolbar">
+      <label>Shape:</label>
+      <select id="shapeSelect">
+        <option value="ellipse">Ellipse</option>
+        <option value="rectangle">Rectangle</option>
+        <option value="cloud">Cloud</option>
+        <option value="thought">Thought</option>
+        <option value="shout">Shout</option>
+        <option value="whisper">Whisper</option>
+      </select>
+      <label>Text:</label>
+      <input id="textInput" type="text" value="Hello!" style="width: 200px" />
+      <label>BG:</label>
+      <input id="bgColor" type="color" value="#FFFFFF" />
+      <button id="addBtn">Add Bubble</button>
+      <button id="clearBtn" class="danger">Clear All</button>
+      <button id="exportBtn" class="export">Export PNG</button>
+    </div>
+
+    <div class="canvas-area" id="canvasArea" style="width: 100%; height: 500px;"></div>
+
+    <div class="gallery">
+      <h2>Shape Gallery</h2>
+      <div class="gallery-grid" id="galleryGrid"></div>
+    </div>
+  </div>
+
+  <script type="module">
+    // ---- Inline implementation for the demo (no build step needed) ----
+    // This uses the same shape/layout logic as the library, bundled inline.
+
+    const SHAPES = {
+      ellipse: {
+        getWidthAtY(y, h, w) {
+          const a = w/2, b = h/2, r = (y-b)/b;
+          return Math.abs(r) >= 1 ? 0 : 2*a*Math.sqrt(1-r*r)*0.7;
+        },
+        draw(ctx, w, h) {
+          ctx.beginPath();
+          ctx.ellipse(w/2, h/2, w/2, h/2, 0, 0, Math.PI*2);
+          ctx.closePath();
+        }
+      },
+      rectangle: {
+        getWidthAtY(y, h, w) {
+          const pad = w*0.08, base = w - 2*pad, r = Math.min(12, w/4, h/4);
+          if (y < r) { const dy = r-y; return Math.max(0, base - 2*(r-Math.sqrt(r*r-dy*dy))); }
+          if (y > h-r) { const dy = y-(h-r); return Math.max(0, base - 2*(r-Math.sqrt(r*r-dy*dy))); }
+          return base;
+        },
+        draw(ctx, w, h) {
+          const r = Math.min(12, w/4, h/4);
+          ctx.beginPath(); ctx.roundRect(0, 0, w, h, r); ctx.closePath();
+        }
+      },
+      cloud: {
+        getWidthAtY(y, h, w) {
+          const a = w/2, b = h/2, r = (y-b)/b;
+          return Math.abs(r) >= 1 ? 0 : 2*a*Math.sqrt(1-r*r)*0.6;
+        },
+        draw(ctx, w, h) {
+          const cx = w/2, cy = h/2, n = 12, rx = w/2, ry = h/2, br = Math.min(rx,ry)*0.3;
+          for (let i = 0; i < n; i++) {
+            const a = (i/n)*Math.PI*2;
+            ctx.beginPath();
+            ctx.arc(cx+rx*0.85*Math.cos(a), cy+ry*0.85*Math.sin(a), br, 0, Math.PI*2);
+            ctx.fill(); ctx.stroke();
+          }
+          ctx.beginPath(); ctx.ellipse(cx, cy, rx*0.75, ry*0.75, 0, 0, Math.PI*2); ctx.closePath();
+        }
+      },
+      thought: {
+        getWidthAtY(y, h, w) { return SHAPES.cloud.getWidthAtY(y, h, w); },
+        draw(ctx, w, h) {
+          SHAPES.cloud.draw(ctx, w, h);
+          // thought trail circles
+          for (let i = 1; i <= 3; i++) {
+            const r = 8 - i*2;
+            ctx.beginPath();
+            ctx.arc(w*0.3 - i*12, h + i*10, r, 0, Math.PI*2);
+            ctx.fill(); ctx.stroke();
+          }
+        }
+      },
+      shout: {
+        getWidthAtY(y, h, w) {
+          const a = w/2, b = h/2, r = (y-b)/b;
+          if (Math.abs(r) >= 1) return 0;
+          const base = 2*a*Math.sqrt(1-r*r);
+          return base * (0.7 + 0.15*Math.sin(y*8*Math.PI/h)) * 0.65;
+        },
+        draw(ctx, w, h) {
+          const cx = w/2, cy = h/2, n = 16;
+          ctx.beginPath();
+          for (let i = 0; i < n; i++) {
+            const oa = (i/n)*Math.PI*2, ia = ((i+0.5)/n)*Math.PI*2;
+            const ox = cx+(w/2)*Math.cos(oa), oy = cy+(h/2)*Math.sin(oa);
+            const ix = cx+(w/2)*0.7*Math.cos(ia), iy = cy+(h/2)*0.7*Math.sin(ia);
+            i===0 ? ctx.moveTo(ox,oy) : ctx.lineTo(ox,oy);
+            ctx.lineTo(ix,iy);
+          }
+          ctx.closePath();
+        }
+      },
+      whisper: {
+        getWidthAtY(y, h, w) { return SHAPES.ellipse.getWidthAtY(y, h, w); },
+        draw(ctx, w, h) { SHAPES.ellipse.draw(ctx, w, h); },
+        dashed: true
+      }
+    };
+
+    function measureText(text, fontSize) {
+      const c = document.createElement('canvas').getContext('2d');
+      c.font = `${fontSize}px Comic Sans MS, cursive`;
+      return c.measureText(text).width;
+    }
+
+    function layoutText(text, shape, w, h, fontSize) {
+      const lh = fontSize * 1.3;
+      const words = text.split(/\s+/).filter(Boolean);
+      if (!words.length) return { lines: [], fits: true };
+      const lines = [];
+      let wi = 0, y = lh;
+      while (wi < words.length && y + lh/2 <= h) {
+        const aw = shape.getWidthAtY(y, h, w);
+        if (aw <= 0) { y += lh*0.3; continue; }
+        let lt = '', lw = 0;
+        while (wi < words.length) {
+          const tt = lt ? `${lt} ${words[wi]}` : words[wi];
+          const tw = measureText(tt, fontSize);
+          if (tw > aw && lt) break;
+          lt = tt; lw = tw; wi++;
+          if (tw > aw) break;
+        }
+        if (lt) lines.push({ text: lt, x: (w-lw)/2, y, width: lw });
+        y += lh;
+      }
+      return { lines, fits: wi >= words.length };
+    }
+
+    function findBestFontSize(text, shape, w, h, min=8, max=48) {
+      let lo = min, hi = max, best = min, bestLayout = null;
+      while (hi - lo > 0.5) {
+        const mid = (lo+hi)/2;
+        const layout = layoutText(text, shape, w, h, mid);
+        if (layout.fits) { best = mid; bestLayout = layout; lo = mid; }
+        else hi = mid;
+      }
+      if (!bestLayout) bestLayout = layoutText(text, shape, w, h, min);
+      return { fontSize: best, layout: bestLayout };
+    }
+
+    function renderBubble(canvas, shapeKey, text, w, h, bgColor='#fff') {
+      canvas.width = w * 2; canvas.height = h * 2;
+      canvas.style.width = w + 'px'; canvas.style.height = h + 'px';
+      const ctx = canvas.getContext('2d');
+      ctx.scale(2, 2);
+      const shape = SHAPES[shapeKey];
+      ctx.fillStyle = bgColor;
+      if (shape.dashed) ctx.setLineDash([6, 4]);
+      else ctx.setLineDash([]);
+      ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
+      shape.draw(ctx, w, h);
+      ctx.fill(); ctx.stroke();
+      ctx.setLineDash([]);
+      const { fontSize, layout } = findBestFontSize(text, shape, w, h);
+      ctx.fillStyle = '#000';
+      ctx.font = `${fontSize}px Comic Sans MS, cursive`;
+      ctx.textBaseline = 'middle';
+      for (const line of layout.lines) ctx.fillText(line.text, line.x, line.y);
+    }
+
+    // ---- App State ----
+    let bubbles = [];
+    let selectedIdx = null;
+    let dragState = null;
+
+    const area = document.getElementById('canvasArea');
+    const shapeSelect = document.getElementById('shapeSelect');
+    const textInput = document.getElementById('textInput');
+    const bgColor = document.getElementById('bgColor');
+
+    function addBubble() {
+      const rect = area.getBoundingClientRect();
+      bubbles.push({
+        shape: shapeSelect.value,
+        text: textInput.value || 'Hello!',
+        w: 200, h: 140,
+        x: 40 + bubbles.length * 30,
+        y: 40 + bubbles.length * 20,
+        bg: bgColor.value,
+      });
+      redraw();
+    }
+
+    function redraw() {
+      // Remove old bubble wrappers
+      area.querySelectorAll('.bubble-wrapper').forEach(el => el.remove());
+      bubbles.forEach((b, i) => {
+        const wrap = document.createElement('div');
+        wrap.className = 'bubble-wrapper' + (i === selectedIdx ? ' selected' : '');
+        wrap.style.left = b.x + 'px';
+        wrap.style.top = b.y + 'px';
+        const canvas = document.createElement('canvas');
+        renderBubble(canvas, b.shape, b.text, b.w, b.h, b.bg);
+        wrap.appendChild(canvas);
+
+        // Drag
+        wrap.addEventListener('pointerdown', e => {
+          e.preventDefault(); e.stopPropagation();
+          selectedIdx = i; dragState = { startX: e.clientX, startY: e.clientY, bx: b.x, by: b.y };
+          wrap.setPointerCapture(e.pointerId);
+          redraw();
+        });
+        wrap.addEventListener('pointermove', e => {
+          if (dragState && selectedIdx === i) {
+            b.x = dragState.bx + e.clientX - dragState.startX;
+            b.y = dragState.by + e.clientY - dragState.startY;
+            wrap.style.left = b.x + 'px'; wrap.style.top = b.y + 'px';
+          }
+        });
+        wrap.addEventListener('pointerup', () => { dragState = null; });
+
+        // Double click to edit text
+        wrap.addEventListener('dblclick', e => {
+          e.stopPropagation();
+          const ta = document.createElement('textarea');
+          ta.className = 'text-overlay';
+          ta.value = b.text;
+          ta.style.width = b.w + 'px'; ta.style.height = b.h + 'px';
+          wrap.appendChild(ta); ta.focus();
+          const finish = () => { b.text = ta.value; ta.remove(); redraw(); };
+          ta.addEventListener('blur', finish);
+          ta.addEventListener('keydown', ev => {
+            if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); finish(); }
+            if (ev.key === 'Escape') { ta.remove(); redraw(); }
+          });
+        });
+
+        area.appendChild(wrap);
+      });
+    }
+
+    document.getElementById('addBtn').addEventListener('click', addBubble);
+    document.getElementById('clearBtn').addEventListener('click', () => { bubbles = []; selectedIdx = null; redraw(); });
+    document.getElementById('exportBtn').addEventListener('click', () => {
+      const rect = area.getBoundingClientRect();
+      const ec = document.createElement('canvas');
+      ec.width = rect.width; ec.height = rect.height;
+      const ctx = ec.getContext('2d');
+      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, ec.width, ec.height);
+      area.querySelectorAll('.bubble-wrapper canvas').forEach(c => {
+        const wr = c.parentElement;
+        const x = parseInt(wr.style.left); const y = parseInt(wr.style.top);
+        ctx.drawImage(c, x, y, c.clientWidth, c.clientHeight);
+      });
+      ec.toBlob(blob => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = 'comic-panel.png'; a.click();
+        URL.revokeObjectURL(url);
+      });
+    });
+    area.addEventListener('click', () => { selectedIdx = null; redraw(); });
+
+    // ---- Shape Gallery ----
+    const grid = document.getElementById('galleryGrid');
+    const sampleTexts = {
+      ellipse: 'Hello! I am a speech bubble!',
+      rectangle: 'This is a rectangular bubble.',
+      cloud: 'Fluffy cloud bubble!',
+      thought: 'Hmm, I wonder...',
+      shout: 'BOOM!',
+      whisper: 'psst... over here...',
+    };
+    for (const [name, shape] of Object.entries(SHAPES)) {
+      const item = document.createElement('div');
+      item.className = 'gallery-item';
+      const c = document.createElement('canvas');
+      renderBubble(c, name, sampleTexts[name] || 'Sample text', 200, 140);
+      item.appendChild(c);
+      const label = document.createElement('div');
+      label.className = 'shape-name';
+      label.textContent = name;
+      item.appendChild(label);
+      grid.appendChild(item);
+    }
+  </script>
+</body>
+</html>
